@@ -1,0 +1,15 @@
+{application, wms_cfg,
+ [{description, "An OTP application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {wms_cfg_app, []}},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {modules, [wms_cfg, wms_cfg_service]},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
