@@ -13,7 +13,9 @@
 -export([load_config/2,
          reload_config/1,
          get/3,
-         overload_config/2]).
+         overload_config/2,
+         get_mode/0,
+         set/3]).
 
 -spec load_config(atom(), [string()]) ->
   ok |{error, term()}.
@@ -34,4 +36,19 @@ reload_config(Mode) ->
   term().
 get(Application, Keys, Default) ->
   wms_cfg_service:get(Application, Keys, Default).
+
+-spec set(atom(), term() | [term()], term()) ->
+  ok.
+set(Application, Keys, Value) ->
+  wms_cfg_service:set(Application, Keys, Value).
+
+-spec get_mode() ->
+  atom().
+get_mode() ->
+  case os:getenv("wms_mode") of
+    false ->
+      throw("wms_mode environment variable was not set.");
+    Value ->
+      list_to_atom(Value)
+  end.
 

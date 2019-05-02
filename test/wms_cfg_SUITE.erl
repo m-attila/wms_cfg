@@ -160,6 +160,7 @@ groups() ->
     {config_group,
      [{repeat_until_any_fail, 1}],
      [
+       get_mode_test,
        config_tests
      ]
     }
@@ -244,6 +245,35 @@ config_group({prelude, Config}) ->
   Config;
 config_group({postlude, _}) ->
   ok = application:stop(?APP_NAME).
+
+%%--------------------------------------------------------------------
+%% Get mode test
+%%
+%%--------------------------------------------------------------------
+
+%% test case information
+get_mode_test({info, _Config}) ->
+  [""];
+get_mode_test(suite) ->
+  ok;
+%% init test case
+get_mode_test({prelude, Config}) ->
+  [{save_mode, os:getenv("wms_mode")} | Config];
+%% destroy test case
+get_mode_test({postlude, Config}) ->
+  case ?config(save_mode, Config) of
+    false ->
+      os:unsetenv("wms_mode");
+    Value ->
+      os:putenv("wms_mode", Value)
+  end,
+  ok;
+%% test case implementation
+get_mode_test(_Config) ->
+  os:unsetenv("wms_mode"),
+  ?assertException(throw, _, wms_cfg:get_mode()),
+  os:putenv("wms_mode", "test"),
+  ?assertEqual(test, wms_cfg:get_mode()).
 
 %%--------------------------------------------------------------------
 %% Configuration services test
@@ -343,6 +373,15 @@ config_tests(Config) ->
 
   % long key
   ?assertEqual(connstr1, wms_cfg:get(app1, [database, db1], not_found)),
+
+  % set variable to application
+  ?assertEqual(not_found, wms_cfg:get(app1, [k1, k2], not_found)),
+  ok = wms_cfg:set(app1, [k1, k2], value),
+  ?assertEqual(value, wms_cfg:get(app1, [k1, k2], not_found)),
+
+  ?assertEqual(not_found, wms_cfg:get(app1, x1, not_found)),
+  ok = wms_cfg:set(app1, x1, value),
+  ?assertEqual(value, wms_cfg:get(app1, x1, not_found)),
 
 
   ok.

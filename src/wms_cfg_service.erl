@@ -14,7 +14,8 @@
 -export([start_link/0,
          load_config/3,
          reload_config/1,
-         get/3]).
+         get/3,
+         set/3]).
 
 -export([init/1,
          handle_info/2,
@@ -55,11 +56,15 @@ load_config(Mode, FileList, LoadMode) ->
 reload_config(Mode) ->
   gen_server:call(?MODULE, {reload_config, Mode}).
 
--spec get(atom(), term() | [term()], key_value()) ->
-  key_value().
+-spec get(atom(), term() | [term()], term()) ->
+  term().
 get(Application, Keys, Default) ->
   gen_server:call(?MODULE, {get, Application, Keys, Default}).
 
+-spec set(atom(), term() | [term()], term()) ->
+  ok.
+set(Application, Keys, Value) ->
+  gen_server:call(?MODULE, {set, Application, Keys, Value}).
 
 %% =============================================================================
 %% gen_server behaviour
@@ -122,13 +127,23 @@ handle_call({load_config, Mode, FileList, additive}, _From,
 
 handle_call({get, Application, Keys, Default}, _From,
             #state{variables = Vars} = State) ->
-  Path = case is_list(Keys) of
-           true ->
-             [Application | Keys];
-           false ->
-             [Application, Keys]
-         end,
-  {reply, maps:get(Path, Vars, Default), State}.
+  Path = to_path(Keys, Application),
+  {reply, maps:get(Path, Vars, Default), State};
+
+handle_call({set, Application, Keys, Value}, _From,
+            #state{variables = Vars} = State) ->
+  Path = to_path(Keys, Application),
+  {reply, ok, State#state{variables = Vars#{Path => Value}}}.
+
+-spec to_path(term() | [term()], atom()) ->
+  [term()].
+to_path(Keys, Application) ->
+  case is_list(Keys) of
+    true ->
+      [Application | Keys];
+    false ->
+      [Application, Keys]
+  end.
 
 merge_files(OldFileList, FileList) ->
   OldFileList ++ lists:subtract(FileList, OldFileList).
