@@ -1,11 +1,12 @@
 {application, wms_cfg,
  [{description, "An OTP application"},
-  {vsn, "0.1.0"},
+  {vsn, git},
   {registered, []},
   {mod, {wms_cfg_app, []}},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    wms_logger
    ]},
   {env,[]},
   {modules, [wms_cfg, wms_cfg_service]},
