@@ -9,6 +9,8 @@
 -module(wms_cfg).
 -author("Attila Makra").
 
+-include_lib("wms_logger/include/wms_logger.hrl").
+
 %% API
 -export([load_config/2,
          reload_config/1,
@@ -20,16 +22,19 @@
 -spec load_config(atom(), [string()]) ->
   ok |{error, term()}.
 load_config(Mode, FileList) ->
+  ?info("Load configuration files : ~p, ~p", [Mode, FileList]),
   wms_cfg_service:load_config(Mode, FileList, reset).
 
 -spec overload_config(atom(), [string()]) ->
   ok |{error, term()}.
 overload_config(Mode, FileList) ->
+  ?info("Overload configuration files : ~p, ~p", [Mode, FileList]),
   wms_cfg_service:load_config(Mode, FileList, additive).
 
 -spec reload_config(atom()) ->
   ok | {error, term()}.
 reload_config(Mode) ->
+  ?info("Reload configuration : ~p", [Mode]),
   wms_cfg_service:reload_config(Mode).
 
 -spec get(atom(), term() | [term()], term()) ->
@@ -47,7 +52,9 @@ set(Application, Keys, Value) ->
 get_mode() ->
   case os:getenv("wms_mode") of
     false ->
-      throw("wms_mode environment variable was not set.");
+      Message = "wms_mode environment variable was not set.",
+      ?error(Message),
+      throw(Message);
     Value ->
       list_to_atom(Value)
   end.
