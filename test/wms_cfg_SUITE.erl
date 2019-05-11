@@ -297,6 +297,10 @@ config_tests(Config) ->
   BaseFile = filename:join(?config(test_dir, Config), "base.config"),
   ok = wms_cfg:load_config(test, [BaseFile]),
 
+  % default entry found
+  Expected0 = 1000,
+  ?assertEqual(Expected0, wms_cfg:get(app1, node_connection_timeout, not_found)),
+
   % entry found
   Expected1 = [test1, test2],
   ?assertEqual(Expected1, wms_cfg:get(app1, nodes, not_found)),
@@ -313,6 +317,11 @@ config_tests(Config) ->
   ExtraFile = filename:join(?config(test_dir, Config), "extra_entries.config"),
   ok = wms_cfg:overload_config(test, [ExtraFile]),
 
+  % default timeout changed
+  Expected10 = 1500,
+  ?assertEqual(Expected10, wms_cfg:get(app1, node_connection_timeout, not_found)),
+
+
   % node names remain
   Expected1 = [test1, test2],
   ?assertEqual(Expected1, wms_cfg:get(app1, nodes, not_found)),
@@ -327,6 +336,11 @@ config_tests(Config) ->
 
   ExtraFile2 = filename:join(?config(test_dir, Config), "extra_entries2.config"),
   ok = wms_cfg:overload_config(test, [ExtraFile2]),
+
+  % default timeout changed
+  Expected30 = 2000,
+  ?assertEqual(Expected30, wms_cfg:get(app1, node_connection_timeout, not_found)),
+
 
   % node names changed
   Expected3 = [newtest1, newtest2],

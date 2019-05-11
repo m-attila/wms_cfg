@@ -175,21 +175,18 @@ load_files(Mode, [File | Rest], Vars) ->
       Else
   end.
 
-%%-spec load_file_content(atom(), [list()], map()) ->
-%%  map().
-%%load_file_content(_Mode, [], Vars) ->
-%%  Vars;
-%%load_file_content(Mode, [Entry | Rest], Vars) ->
-%%  NewVars = load_entry_content(Mode, Entry, Vars),
-%%  load_entry_content(Mode, Rest, NewVars).
-
 -spec load_entry_content(atom(), [file_app_entry()], map()) ->
   map().
 load_entry_content(_Mode, [], Vars) ->
   Vars;
 load_entry_content(Mode, [{Application, AppModes} | RestEntries], Vars) ->
+  % read app settings for default mode
+  AppDefaultEntries = proplists:get_value(default, AppModes, []),
   % read app settings for given modes
-  AppModeEntries = proplists:get_value(Mode, AppModes,
-                                       proplists:get_value(default, AppModes, [])),
-  EntryMap = wms_common:proplist_to_map(AppModeEntries, Application),
+  AppModeEntries = proplists:get_value(Mode, AppModes, []),
+
+  EntryMapDefault = wms_common:proplist_to_map(AppDefaultEntries, Application),
+  EntryMapMode = wms_common:proplist_to_map(AppModeEntries, Application),
+  EntryMap = maps:merge(EntryMapDefault, EntryMapMode),
+
   load_entry_content(Mode, RestEntries, maps:merge(Vars, EntryMap)).
