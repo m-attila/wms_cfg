@@ -234,7 +234,7 @@ start_stop_test({postlude, _Config}) ->
   ok;
 %% test case implementation
 start_stop_test(_Config) ->
-  ok = application:start(?APP_NAME),
+  {ok, _} = application:ensure_all_started(?APP_NAME),
   ok = application:stop(?APP_NAME).
 
 %% =============================================================================
@@ -300,6 +300,10 @@ config_tests(Config) ->
   % default entry found
   Expected0 = 1000,
   ?assertEqual(Expected0, wms_cfg:get(app1, node_connection_timeout, not_found)),
+
+  % replaced by hostname
+  ExpectedHostname = list_to_atom("wms_node@" ++ wms_common:get_hostname()),
+  ?assertEqual([ExpectedHostname], wms_cfg:get(app1, host, not_found)),
 
   % entry found
   Expected1 = [test1, test2],
@@ -396,7 +400,6 @@ config_tests(Config) ->
   ?assertEqual(not_found, wms_cfg:get(app1, x1, not_found)),
   ok = wms_cfg:set(app1, x1, value),
   ?assertEqual(value, wms_cfg:get(app1, x1, not_found)),
-
 
   ok.
 

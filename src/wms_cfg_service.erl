@@ -189,4 +189,35 @@ load_entry_content(Mode, [{Application, AppModes} | RestEntries], Vars) ->
   EntryMapMode = wms_common:proplist_to_map(AppModeEntries, Application),
   EntryMap = maps:merge(EntryMapDefault, EntryMapMode),
 
-  load_entry_content(Mode, RestEntries, maps:merge(Vars, EntryMap)).
+  load_entry_content(Mode, RestEntries, maps:merge(Vars, replace_host(EntryMap))).
+
+-spec replace_host(map()) ->
+  map().
+replace_host(EntryMap) ->
+  HostName = list_to_binary(wms_common:get_hostname()),
+  maps:fold(
+    fun(K, V, CurrMap) ->
+      V1 = replace_hostname(V, HostName),
+      CurrMap#{K => V1}
+    end, #{}, EntryMap).
+
+-spec replace_hostname(term() | [term()], binary()) ->
+  term().
+replace_hostname(V, HostName) when is_list(V) ->
+  lists:reverse(
+    lists:foldl(
+      fun(E, Acc) ->
+        [replace_hostname(E, HostName) | Acc]
+      end, [], V));
+replace_hostname(V, HostName) when is_atom(V) ->
+  AtomToBinary = atom_to_binary(V, latin1),
+  case binary:match(AtomToBinary, <<"__hostname__">>) of
+    nomatch ->
+      V;
+    _ ->
+      binary_to_atom(binary:replace(AtomToBinary,
+                                    <<"__hostname__">>,
+                                    HostName), latin1)
+  end;
+replace_hostname(V, _) ->
+  V.
