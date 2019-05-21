@@ -161,7 +161,8 @@ groups() ->
      [{repeat_until_any_fail, 1}],
      [
        get_mode_test,
-       config_tests
+       config_test,
+       multi_config_test
      ]
     }
   ].
@@ -241,7 +242,7 @@ start_stop_test(_Config) ->
 %% Config group
 %% =============================================================================
 config_group({prelude, Config}) ->
-  ok = application:start(?APP_NAME),
+  {ok, _} = application:ensure_all_started(?APP_NAME),
   Config;
 config_group({postlude, _}) ->
   ok = application:stop(?APP_NAME).
@@ -281,18 +282,18 @@ get_mode_test(_Config) ->
 %%--------------------------------------------------------------------
 
 %% test case information
-config_tests({info, _Config}) ->
+config_test({info, _Config}) ->
   [""];
-config_tests(suite) ->
+config_test(suite) ->
   ok;
 %% init test case
-config_tests({prelude, Config}) ->
+config_test({prelude, Config}) ->
   Config;
 %% destroy test case
-config_tests({postlude, _Config}) ->
+config_test({postlude, _Config}) ->
   ok;
 %% test case implementation
-config_tests(Config) ->
+config_test(Config) ->
   % load test data
   BaseFile = filename:join(?config(test_dir, Config), "base.config"),
   ok = wms_cfg:load_config(test, [BaseFile]),
@@ -402,6 +403,59 @@ config_tests(Config) ->
   ?assertEqual(value, wms_cfg:get(app1, x1, not_found)),
 
   ok.
+
+%%--------------------------------------------------------------------
+%% Load config for all dependencies
+%%
+%%--------------------------------------------------------------------
+
+%% test case information
+multi_config_test({info, _Config}) ->
+  [""];
+multi_config_test(suite) ->
+  ok;
+%% init test case
+multi_config_test({prelude, Config}) ->
+  ok = meck:new(wms_cfg, [passthrough]),
+  SourceDir = filename:join(code:lib_dir(?APP_NAME), "test"),
+  DestDir = code:priv_dir(?APP_NAME),
+  {ok, _} = file:copy(filename:join(SourceDir, "app1.config"),
+                      filename:join(DestDir, "app1.config")),
+  {ok, _} = file:copy(filename:join(SourceDir, "app2.config"),
+                      filename:join(DestDir, "app2.config")),
+
+  meck:expect(wms_cfg, get_app_directory, fun(_) ->
+    DestDir end),
+
+  [{dest_dir, DestDir} | Config];
+%% destroy test case
+multi_config_test({postlude, Config}) ->
+  ok = meck:unload(wms_cfg),
+  DestDir = ?config(dest_dir, Config),
+  ok = file:delete(filename:join(DestDir, "app1.config")),
+  ok = file:delete(filename:join(DestDir, "app2.config"));
+%% test case implementation
+multi_config_test(_Config) ->
+  wms_cfg:clear(),
+  ok = wms_cfg:load_app_config([app1]),
+  ?assertEqual(node1, wms_cfg:get(app1, node, not_found)),
+  ?assertEqual(2, wms_cfg:get(app1, timeout, not_found)),
+  ?assertEqual(not_found, wms_cfg:get(app1, repeat, not_found)),
+  ?assertEqual(not_found, wms_cfg:get(app2, size, not_found)),
+
+  wms_cfg:clear(),
+  ok = wms_cfg:load_app_config([app1, app2]),
+  ?assertEqual(node2, wms_cfg:get(app1, node, not_found)),
+  ?assertEqual(5, wms_cfg:get(app1, timeout, not_found)),
+  ?assertEqual(10, wms_cfg:get(app1, repeat, not_found)),
+  ?assertEqual(1000, wms_cfg:get(app2, size, not_found)),
+
+  % config already protected
+  ok = wms_cfg:load_app_config([app1]),
+  ?assertEqual(node2, wms_cfg:get(app1, node, not_found)),
+  ?assertEqual(5, wms_cfg:get(app1, timeout, not_found)),
+  ?assertEqual(10, wms_cfg:get(app1, repeat, not_found)),
+  ?assertEqual(1000, wms_cfg:get(app2, size, not_found)).
 
 
 

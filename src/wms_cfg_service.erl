@@ -10,12 +10,16 @@
 -author("Attila Makra").
 -behaviour(gen_server).
 
+-include_lib("wms_logger/include/wms_logger.hrl").
+
 %% API
 -export([start_link/0,
          load_config/3,
          reload_config/1,
          get/3,
-         set/3]).
+         set/3,
+         clear/0,
+         set_protected/2]).
 
 -export([init/1,
          handle_info/2,
@@ -30,6 +34,8 @@
   mode = undefined :: atom(),
   files = [] :: [string()],
   variables = #{} :: map(),
+  manual_variables = #{} :: map(),
+  protected_deps = #{} :: map(),
   backup :: term()
 }).
 -type state() :: #state{}.
@@ -66,6 +72,16 @@ get(Application, Keys, Default) ->
 set(Application, Keys, Value) ->
   gen_server:call(?MODULE, {set, Application, Keys, Value}).
 
+-spec clear() ->
+  ok.
+clear() ->
+  gen_server:call(?MODULE, clear).
+
+-spec set_protected(atom(), boolean()) ->
+  ok.
+set_protected(Application, Logical) ->
+  gen_server:call(?MODULE, {set_protected, Application, Logical}).
+
 %% =============================================================================
 %% gen_server behaviour
 %% =============================================================================
@@ -82,48 +98,43 @@ handle_info(_, State) ->
 -spec handle_call(Info :: any(), From :: {pid(), term()}, State :: state())
                  ->
                    {reply, term(), State :: state()}.
-handle_call({reload_config, Mode}, From, #state{files = FileList} = State) ->
-  handle_call({load_config, Mode, FileList, reset},
-              From, State#state{variables = #{},
-                                mode      = Mode,
-                                backup    = State});
+handle_call({reload_config, Mode}, _From, #state{files = FileList} = State) ->
+  NewState = (backup(State))#state{
+    variables = #{},
+    mode      = Mode,
+    files     = []
+  },
+  do_load_config(Mode, FileList, NewState);
 
-handle_call({load_config, Mode, FileList, reset}, From, State) ->
-  handle_call({load_config, Mode, FileList, additive},
-              From, State#state{variables = #{},
-                                files     = [],
-                                mode      = Mode,
-                                backup    = State});
+handle_call({load_config, Mode, FileList, reset}, _From, State) ->
+  NewState = (backup(State))#state{
+    variables = #{},
+    mode      = Mode,
+    files     = []
+  },
+  do_load_config(Mode, FileList, NewState);
 
-handle_call({load_config, Mode, FileList, additive}, From,
+handle_call({load_config, Mode, FileList, additive}, _From,
+            #state{mode = undefined} = State) ->
+  % first call load call was overload, before mode was set
+  NewState = (backup(State))#state{
+    mode = Mode
+  },
+  do_load_config(Mode, FileList, NewState);
+
+handle_call({load_config, Mode, FileList, additive}, _From,
             #state{mode  = OldMode,
                    files = OldFileList} = State) when Mode =/= OldMode ->
   % mode changed, most reload all files
-  NewState = State#state{
+  NewState = (backup(State))#state{
     mode      = Mode,
     files     = [],
-    variables = #{},
-    backup    = State
+    variables = #{}
   },
-  handle_call({load_config, Mode, merge_files(OldFileList, FileList), additive},
-              From, NewState);
+  do_load_config(Mode, merge_files(OldFileList, FileList), NewState);
 
-handle_call({load_config, Mode, FileList, additive}, _From,
-            #state{variables = OldVariables,
-                   files     = OldFileList,
-                   backup    = BackupState}) ->
-  {Reply, NewState} =
-    case load_files(Mode, FileList) of
-      {ok, Variables} ->
-        {ok, #state{
-          files     = merge_files(OldFileList, FileList),
-          variables = maps:merge(OldVariables, Variables)
-        }};
-      Other ->
-        {Other, BackupState}
-    end,
-
-  {reply, Reply, NewState};
+handle_call({load_config, Mode, FileList, additive}, _From, State) ->
+  do_load_config(Mode, FileList, backup(State));
 
 handle_call({get, Application, Keys, Default}, _From,
             #state{variables = Vars} = State) ->
@@ -131,9 +142,29 @@ handle_call({get, Application, Keys, Default}, _From,
   {reply, maps:get(Path, Vars, Default), State};
 
 handle_call({set, Application, Keys, Value}, _From,
-            #state{variables = Vars} = State) ->
+            #state{variables        = Vars,
+                   manual_variables = MVars} = State) ->
   Path = to_path(Keys, Application),
-  {reply, ok, State#state{variables = Vars#{Path => Value}}}.
+  {reply, ok, State#state{
+    variables        = Vars#{Path => Value},
+    manual_variables = MVars#{Path => Value}}};
+
+handle_call(clear, _From, #state{mode = Mode}) ->
+  ?debug("Clear all configuration variables"),
+  {reply, ok, #state{mode = Mode}};
+
+handle_call({set_protected, Application, Logical}, _From,
+            #state{protected_deps = Protected} = State) ->
+  NewProtected =
+    case Logical of
+      true ->
+        ?debug("~s application config sets protected", [Application]),
+        Protected#{Application => true};
+      false ->
+        ?debug("~s application config unset protected", [Application]),
+        maps:remove(Application, Protected)
+    end,
+  {reply, ok, State#state{protected_deps = NewProtected}}.
 
 -spec to_path(term() | [term()], atom()) ->
   [term()].
@@ -157,39 +188,72 @@ handle_cast(_, State) ->
 %% =============================================================================
 %% Private functions
 %% =============================================================================
--spec load_files(atom(), [string()]) ->
-  {ok, map()} | {error, term()}.
-load_files(Mode, FileList) ->
-  load_files(Mode, FileList, #{}).
+
+-spec do_load_config(atom(), [string()], state()) ->
+  {reply, term(), state()}.
+do_load_config(Mode, FileList, #state{variables        = OldVariables,
+                                      files            = OldFileList,
+                                      backup           = BackupState,
+                                      manual_variables = MVars,
+                                      protected_deps   = ProtectedDeps} = State) ->
+  {Reply, NewState} =
+    case load_files(Mode, FileList, ProtectedDeps) of
+      {ok, Variables} ->
+        State1 = State#state{
+          files     = merge_files(OldFileList, FileList),
+          variables = maps:merge(OldVariables, Variables)
+        },
+        {ok, apply_manual_vars(State1, MVars)};
+      Other ->
+        {Other, BackupState}
+    end,
+
+  {reply, Reply, NewState}.
 
 -spec load_files(atom(), [string()], map()) ->
   {ok, map()} | {error, term()}.
-load_files(_Mode, [], Vars) ->
+load_files(Mode, FileList, ProtectedDeps) ->
+  load_files(Mode, FileList, ProtectedDeps, #{}).
+
+-spec load_files(atom(), [string()], map(), map()) ->
+  {ok, map()} | {error, term()}.
+load_files(_Mode, [], _, Vars) ->
   {ok, Vars};
-load_files(Mode, [File | Rest], Vars) ->
+load_files(Mode, [File | Rest], ProtectedDeps, Vars) ->
   case file:consult(File) of
     {ok, Content} ->
-      NewVars = load_entry_content(Mode, Content, Vars),
-      load_files(Mode, Rest, NewVars);
+      NewVars = load_entry_content(Mode, Content, ProtectedDeps, Vars),
+      load_files(Mode, Rest, ProtectedDeps, NewVars);
     Else ->
       Else
   end.
 
--spec load_entry_content(atom(), [file_app_entry()], map()) ->
+-spec load_entry_content(atom(), [file_app_entry()], map(), map()) ->
   map().
-load_entry_content(_Mode, [], Vars) ->
+load_entry_content(_Mode, [], _, Vars) ->
   Vars;
-load_entry_content(Mode, [{Application, AppModes} | RestEntries], Vars) ->
-  % read app settings for default mode
-  AppDefaultEntries = proplists:get_value(default, AppModes, []),
-  % read app settings for given modes
-  AppModeEntries = proplists:get_value(Mode, AppModes, []),
+load_entry_content(Mode, [{Application, AppModes} | RestEntries],
+                   ProtectedDeps, Vars) ->
+  case maps:is_key(Application, ProtectedDeps) of
+    false ->
+      % read app settings for default mode
+      AppDefaultEntries = proplists:get_value(default, AppModes, []),
+      % read app settings for given modes
+      AppModeEntries = proplists:get_value(Mode, AppModes, []),
 
-  EntryMapDefault = wms_common:proplist_to_map(AppDefaultEntries, Application),
-  EntryMapMode = wms_common:proplist_to_map(AppModeEntries, Application),
-  EntryMap = maps:merge(EntryMapDefault, EntryMapMode),
+      EntryMapDefault = wms_common:proplist_to_map(AppDefaultEntries, Application),
+      EntryMapMode = wms_common:proplist_to_map(AppModeEntries, Application),
+      EntryMap = maps:merge(EntryMapDefault, EntryMapMode),
 
-  load_entry_content(Mode, RestEntries, maps:merge(Vars, replace_host(EntryMap))).
+      ?debug("~s application was loaded", [Application]),
+
+      load_entry_content(Mode, RestEntries, ProtectedDeps,
+                         maps:merge(Vars, replace_host(EntryMap)));
+    true ->
+      ?debug("~s application was not loaded, "
+             "because configuration protected", [Application]),
+      load_entry_content(Mode, RestEntries, ProtectedDeps, Vars)
+  end.
 
 -spec replace_host(map()) ->
   map().
@@ -221,3 +285,12 @@ replace_hostname(V, HostName) when is_atom(V) ->
   end;
 replace_hostname(V, _) ->
   V.
+
+-spec apply_manual_vars(state(), map()) ->
+  state().
+apply_manual_vars(#state{variables = Vars} = State, MVars) ->
+  State#state{variables = maps:merge(Vars, MVars)}.
+
+backup(State) ->
+  BackedUp = State#state{backup = undefined},
+  State#state{backup = BackedUp}.
