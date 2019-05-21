@@ -21,7 +21,8 @@
          load_app_config/1,
          clear/0,
          get_app_directory/1,
-         set_protected/2]).
+         set_protected/2,
+         start_apps/2]).
 
 %% @doc
 %%
@@ -65,6 +66,7 @@ load_config(Mode, FileList) ->
 load_app_config(Applications) ->
   do_load_app_config(Applications),
   [set_protected(App, true) || App <- Applications],
+  ?info("Config are loaded for ~0p applications", [Applications]),
   ok.
 
 -spec do_load_app_config([atom()]) ->
@@ -240,3 +242,35 @@ get_mode() ->
 clear() ->
   wms_cfg_service:clear().
 
+
+-spec start_apps(atom(), [atom()]) ->
+  ok | {error, term()}.
+start_apps(Application, Deps) ->
+  wms_cfg:load_app_config(Deps ++ [Application]),
+
+  Ret = [application:ensure_all_started(App) || App <- Deps],
+
+  {Succ, Fail} = lists:partition(
+    fun({ok, _}) ->
+      true;
+       (_) ->
+         false
+    end,
+    Ret),
+
+  case Fail of
+    [] ->
+      StartedApps = lists:foldr(
+        fun({ok, A}, Acc) ->
+          A ++ Acc
+        end, [], Succ),
+      ?info("Applications started : ~0p", [StartedApps]),
+      ok;
+    Errors ->
+      Errors = lists:foldr(
+        fun({error, A}, Acc) ->
+          A ++ Acc
+        end, [], Errors),
+      ?error("Failed to start applications: ~0p", [Errors]),
+      {error, Errors}
+  end.
