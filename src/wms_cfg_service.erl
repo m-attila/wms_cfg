@@ -248,21 +248,22 @@ load_entry_content(Mode, [{Application, AppModes} | RestEntries],
       ?debug("~s application was loaded", [Application]),
 
       load_entry_content(Mode, RestEntries, ProtectedDeps,
-                         maps:merge(Vars, replace_host(EntryMap)));
+                         maps:merge(Vars, replace(EntryMap)));
     true ->
       ?debug("~s application was not loaded, "
              "because configuration protected", [Application]),
       load_entry_content(Mode, RestEntries, ProtectedDeps, Vars)
   end.
 
--spec replace_host(map()) ->
+-spec replace(map()) ->
   map().
-replace_host(EntryMap) ->
+replace(EntryMap) ->
   HostName = list_to_binary(wms_common:get_hostname()),
   maps:fold(
     fun(K, V, CurrMap) ->
       V1 = replace_hostname(V, HostName),
-      CurrMap#{K => V1}
+      V2 = replace_env_var(V1),
+      CurrMap#{K => V2}
     end, #{}, EntryMap).
 
 -spec replace_hostname(term() | [term()], binary()) ->
@@ -285,6 +286,59 @@ replace_hostname(V, HostName) when is_atom(V) ->
   end;
 replace_hostname(V, _) ->
   V.
+
+-spec replace_env_var(term() | [term()]) ->
+  term().
+replace_env_var(V) when is_list(V) ->
+  lists:reverse(
+    lists:foldl(
+      fun(E, Acc) ->
+        [replace_env_var(E) | Acc]
+      end, [], V));
+replace_env_var(V) when is_atom(V) ->
+  AtomToBinary = atom_to_binary(V, latin1),
+  case get_env_var_pos(AtomToBinary) of
+    nomatch ->
+      V;
+    {Start, Length} ->
+      binary_to_atom(replace_env_var(AtomToBinary, Start, Length), latin1)
+  end;
+replace_env_var(V) ->
+  V.
+
+-spec replace_env_var(binary(), integer(), integer()) ->
+  binary().
+replace_env_var(Reference, Start, Length) ->
+  EnvVarName = binary_to_list(binary:part(Reference, Start, Length)),
+  case os:getenv(EnvVarName) of
+    false ->
+      ?error("~s environment variable was not set", [EnvVarName]),
+      Reference;
+    Value ->
+      Before = binary:part(Reference, 0, Start - 2),
+      After = binary:part(Reference,
+                          Start + Length + 1,
+                          byte_size(Reference) - (Start + Length + 1)),
+      <<Before/binary, (list_to_binary(Value))/binary, After/binary>>
+  end.
+
+get_env_var_pos(V) ->
+  Position =
+    case binary:match(V, <<"${">>) of
+      nomatch ->
+        nomatch;
+      {Start, _} ->
+        {Start, binary:match(V, <<"}">>, [{scope, {Start, byte_size(V) - Start}}])}
+    end,
+
+  case Position of
+    nomatch ->
+      nomatch;
+    {_, nomatch} ->
+      nomatch;
+    {St, {End, _}} ->
+      {St + 2, End - St - 2}
+  end.
 
 -spec apply_manual_vars(state(), map()) ->
   state().

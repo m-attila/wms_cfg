@@ -313,6 +313,12 @@ config_test(Config) ->
   % entry not found
   ?assertEqual(not_found, wms_cfg:get(app1, no_key, not_found)),
 
+  % env_var1 contains wms_mode
+  ?assertEqual('test', wms_cfg:get(app1, env_var1, not_found)),
+  ?assertEqual('atest', wms_cfg:get(app1, env_var2, not_found)),
+  ?assertEqual('testa', wms_cfg:get(app1, env_var3, not_found)),
+  ?assertEqual('${notfound}', wms_cfg:get(app1, env_var4, not_found)),
+
   % reload config in production mode
   wms_cfg:reload_config(prod),
   Expected2 = [prod1, prod2],
