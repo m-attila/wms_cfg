@@ -80,6 +80,7 @@ do_load_app_config([Dep | RestDeps]) ->
          true ->
            overload_config(wms_cfg:get_mode(), [Path]);
          false ->
+           ?warning("No config file was found: ~p", [Path]),
            ok
        end,
   do_load_app_config(RestDeps).
@@ -230,9 +231,8 @@ set_protected(Application, Logical) ->
 get_mode() ->
   case os:getenv("wms_mode") of
     false ->
-      Message = "wms_mode environment variable was not set.",
-      ?error(Message),
-      throw(Message);
+      ?error("CFG-0001", "wms_mode environment variable was not set ~s.", [wms_cfg]),
+      throw("wms_mode environment variable was not set.");
     Value ->
       list_to_atom(Value)
   end.
@@ -271,6 +271,6 @@ start_apps(Application, Deps) ->
         fun({error, A}, Acc) ->
           A ++ Acc
         end, [], Errors),
-      ?error("Failed to start applications: ~0p", [Errors]),
+      ?error("CFG-0002", "Failed to start applications: ~0p", [Errors]),
       {error, Errors}
   end.

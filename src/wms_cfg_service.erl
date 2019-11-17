@@ -225,6 +225,7 @@ load_files(Mode, [File | Rest], ProtectedDeps, Vars) ->
       NewVars = load_entry_content(Mode, Content, ProtectedDeps, Vars),
       load_files(Mode, Rest, ProtectedDeps, NewVars);
     Else ->
+      ?error("CFG-0004", "Unable to load configuration file: ~s", [File]),
       Else
   end.
 
@@ -312,7 +313,7 @@ replace_env_var(Reference, Start, Length) ->
   EnvVarName = binary_to_list(binary:part(Reference, Start, Length)),
   case os:getenv(EnvVarName) of
     false ->
-      ?error("~s environment variable was not set", [EnvVarName]),
+      ?error("CFG-0003", "~s environment variable was not set", [EnvVarName]),
       Reference;
     Value ->
       Before = binary:part(Reference, 0, Start - 2),
