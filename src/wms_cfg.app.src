@@ -1,5 +1,5 @@
 {application, wms_cfg,
- [{description, "An OTP application"},
+ [{description, "ConfigurationHandler implementation"},
   {vsn, git},
   {registered, []},
   {mod, {wms_cfg_app, []}},
